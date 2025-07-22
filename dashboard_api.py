@@ -29,19 +29,20 @@ def dashboard_summary():
                 SELECT DATE_FORMAT(date, '%%b') as month, COUNT(*) as value
                 FROM applications
                 WHERE user_id = %s
-                GROUP BY MONTH(date)
-                ORDER BY MONTH(date)
+                GROUP BY DATE_FORMAT(date, '%%b')
+                ORDER BY MIN(date)
+
             """, (user_id,))
             chart_data = cur.fetchall()
 
-            # Customer composition
-            cur.execute("""
-                SELECT category AS name, COUNT(*) as value
-                FROM customers
-                WHERE user_id = %s
-                GROUP BY category
-            """, (user_id,))
-            customer_composition = cur.fetchall()
+            # # Customer composition
+            # cur.execute("""
+            #     SELECT category AS name, COUNT(*) as value
+            #     FROM customers
+            #     WHERE user_id = %s
+            #     GROUP BY category
+            # """, (user_id,))
+            # customer_composition = cur.fetchall()
 
             # Recent activities
             cur.execute("""
@@ -63,16 +64,38 @@ def dashboard_summary():
             """, (user_id,))
             latest_applications = cur.fetchall()
 
+            # ✅ Hitung pemasukan dan pengeluaran
+            cur.execute("""
+                SELECT SUM(amount) AS income
+                FROM transactions
+                WHERE user_id = %s AND type = 'pemasukan'
+            """, (user_id,))
+            income = cur.fetchone()['income'] or 0
+
+            cur.execute("""
+                SELECT SUM(amount) AS expense
+                FROM transactions
+                WHERE user_id = %s AND type = 'pengeluaran'
+            """, (user_id,))
+            expense = cur.fetchone()['expense'] or 0
+
+            margin = round(((income - expense) / income) * 100, 2) if income > 0 else 0
+
+            # ✅ Tambahkan 'margin' ke response
             return jsonify({
-                "fraud_count": fraud_count,
-                "total_applications": total_applications,
-                "fraud_rate": fraud_rate,
-                "growth_percentage": 15,  # hardcoded sementara
-                "chart_data": chart_data,
-                "customer_composition": customer_composition,
-                "recent_activities": recent_activities,
-                "latest_applications": latest_applications
-            })
+            "fraud_count": fraud_count,
+            "total_applications": total_applications,
+            "fraud_rate": fraud_rate,
+            "growth_percentage": 15,
+            "chart_data": chart_data,
+            # "customer_composition": customer_composition,
+            "recent_activities": recent_activities,
+            "latest_applications": latest_applications,
+            "income": income,                 # ← Ditambahkan
+            "expense": expense,              # ← Ditambahkan
+            "margin": margin                 # ← Sudah ada
+        })
+
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -86,3 +109,37 @@ def get_summary():
     cursor.close()
     conn.close()
     return jsonify(results)
+
+@dashboard_blueprint.route('/dashboard/financial-health', methods=['GET'])
+@jwt_required()
+def financial_health():
+    user_id = get_jwt_identity()
+
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor(dictionary=True)
+
+            cur.execute("""
+                SELECT SUM(amount) AS income
+                FROM transactions
+                WHERE user_id = %s AND type = 'pemasukan'
+            """, (user_id,))
+            income = cur.fetchone()['income'] or 0
+
+            cur.execute("""
+                SELECT SUM(amount) AS expense
+                FROM transactions
+                WHERE user_id = %s AND type = 'pengeluaran'
+            """, (user_id,))
+            expense = cur.fetchone()['expense'] or 0
+
+            margin = round(((income - expense) / income) * 100, 2) if income > 0 else 0
+
+            return jsonify({
+                "income": income,
+                "expense": expense,
+                "margin": margin
+            })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

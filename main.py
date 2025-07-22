@@ -1,32 +1,42 @@
 from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
+from app.models import db
+from user_api import user_blueprint
+from transactions_api import transaction_bp
 from dashboard_api import dashboard_blueprint
+from dotenv import load_dotenv
+import os
 
+# ✅ Load .env file
+load_dotenv()
 
+# ✅ Ambil dari environment
+db_user = os.getenv("DB_USER")
+db_password = os.getenv("DB_PASSWORD")
+db_host = os.getenv("DB_HOST")
+db_port = os.getenv("DB_PORT")
+db_name = os.getenv("DB_NAME")
 
-# Impor semua blueprint Anda, termasuk yang baru
-from user_api import user_blueprint 
-
-# Initialize the Flask application and JWT manager
+# ✅ Konfigurasi Flask & DB
 app = Flask(__name__)
+app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "fallback-secret")
+app.config["SQLALCHEMY_DATABASE_URI"] = f"mysql+mysqlconnector://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# Configure the JWT secret key
-app.config['JWT_SECRET_KEY'] = 'your_jwt_secret_key'  # Replace with your actual secret key
-
-# Initialize the JWT manager
+# ✅ Init ekstensi
+db.init_app(app)
 jwt = JWTManager(app)
-
 CORS(app, origins="*")
 
-# Register Blueprints
+# ✅ Daftarkan blueprint
 app.register_blueprint(user_blueprint, url_prefix='/user')
+app.register_blueprint(transaction_bp, url_prefix='/transactions')
 app.register_blueprint(dashboard_blueprint)
 
-# Root endpoint (optional)
 @app.route('/')
 def index():
-    return jsonify({"message": "Welcome! Available prefixes: /user"})
+    return jsonify({"message": "Welcome! Available prefixes: /user, /transactions, /dashboard"})
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=8000)  # ubah ke 8000 
+    app.run(debug=True, host='0.0.0.0', port=8000)
