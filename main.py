@@ -5,6 +5,7 @@ from app.models import db
 from user_api import user_blueprint
 from transactions_api import transaction_bp
 from dashboard_api import dashboard_blueprint
+from ocr_api import ocr_blueprint
 from dotenv import load_dotenv
 import os
 
@@ -32,6 +33,7 @@ CORS(app, origins="*")
 # ✅ Daftarkan blueprint
 app.register_blueprint(user_blueprint, url_prefix='/user')
 app.register_blueprint(transaction_bp, url_prefix='/transactions')
+app.register_blueprint(ocr_blueprint, url_prefix='/ocr')
 app.register_blueprint(dashboard_blueprint)
 
 @app.route('/')
