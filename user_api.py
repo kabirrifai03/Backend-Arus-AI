@@ -3,7 +3,18 @@ from flask_jwt_extended import create_access_token
 from koneksi import get_conn, Error  # pool koneksi dari db.py
 import bcrypt
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import verify_jwt_in_request
+from flask import g
+from functools import wraps
 
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        verify_jwt_in_request()
+        user_id = get_jwt_identity()
+        g.user = type('User', (object,), {'id': user_id})()  # Sementara buat object user tiruan
+        return f(*args, **kwargs)
+    return decorated
 
 # Create the akun blueprint
 user_blueprint = Blueprint('user', __name__)
@@ -90,7 +101,7 @@ def profile():
     try:
         with get_conn() as conn:
             cur = conn.cursor(dictionary=True)
-            cur.execute("SELECT id, username FROM akun WHERE id = %s", (user_id,))
+            cur.execute("SELECT id, username, full_name, phone_number, photo_url, npwp_number, has_npwp, business_description FROM akun WHERE id = %s", (user_id,))
             user = cur.fetchone()
 
             if not user:
@@ -100,3 +111,44 @@ def profile():
 
     except Error as err:
         return jsonify({"error": f"Database error: {err}"}), 500
+    
+    
+@user_blueprint.route('/profile/update', methods=['PUT'])
+@jwt_required()
+def update_profile():
+    user_id = get_jwt_identity()
+    data = request.get_json()
+
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+
+            cur.execute("""
+                UPDATE akun
+                SET full_name = %s,
+                    email = %s,
+                    phone_number = %s,
+                    npwp_number = %s,
+                    address = %s,
+                    photo_url = %s,
+                    business_description = %s
+                WHERE id = %s
+            """, (
+                data.get("namaLengkap"),
+                data.get("email"),
+                data.get("noTelepon"),
+                data.get("npwp"),
+                data.get("alamat"),
+                data.get("fotoProfil"),
+                data.get("business_description"),  # tambahkan ini
+                user_id
+            ))
+
+            conn.commit()
+            return jsonify({"message": "Profil berhasil diperbarui."}), 200
+
+    except Error as err:
+        return jsonify({"error": f"Database error: {err}"}), 500
+
+
+__all__ = ["user_blueprint", "token_required"]

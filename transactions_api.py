@@ -145,3 +145,81 @@ def download_report():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+
+@transaction_bp.route('/metrics', methods=['GET'])
+@jwt_required()
+def get_transaction_metrics():
+    user_id = get_jwt_identity()
+    start_date = request.args.get("start_date")
+    end_date = request.args.get("end_date")
+
+    try:
+        query = Transaction.query.filter_by(user_id=user_id)
+        
+        # Ambil earliest and latest date kalau tidak diberikan
+        if not start_date or not end_date:
+            date_range = query.with_entities(
+                db.func.min(Transaction.date), db.func.max(Transaction.date)
+            ).first()
+            start_date = start_date or date_range[0].strftime("%Y-%m-%d")
+            end_date = end_date or date_range[1].strftime("%Y-%m-%d")
+
+        query = query.filter(Transaction.date >= start_date)
+        query = query.filter(Transaction.date <= end_date)
+
+        transactions = query.all()
+        total_income = sum(tx.amount for tx in transactions if tx.type == "pemasukan")
+        total_expense = sum(tx.amount for tx in transactions if tx.type == "pengeluaran")
+        count = len(transactions)
+
+        # Hitung durasi hari yang benar
+        d1 = datetime.strptime(start_date, "%Y-%m-%d").date()
+        d2 = datetime.strptime(end_date, "%Y-%m-%d").date()
+        delta_days = max((d2 - d1).days + 1, 1)
+
+        delta_weeks = max((delta_days // 7), 1)
+        delta_months = max((delta_days // 30), 1)
+
+        is_less_than_year = delta_days < 365
+        omzet_annualized = (total_income / delta_days) * 365 if is_less_than_year else total_income
+        profit_actual = total_income - total_expense
+
+        # Pajak
+        if omzet_annualized <= 4800000000:
+            tax = 0.005 * total_income
+            tax_note = "Final 0.5% dari omzet (UMKM)"
+        elif omzet_annualized <= 50000000000:
+            proporsional_laba_48 = (4800000000 / omzet_annualized) * profit_actual
+            sisa_laba = profit_actual - proporsional_laba_48
+            tax = (0.11 * proporsional_laba_48) + (0.22 * sisa_laba)
+            tax_note = "11% untuk laba dari omzet 4,8M pertama, 22% sisanya"
+        else:
+            tax = 0.22 * profit_actual
+            tax_note = "Tarif normal 22%"
+
+        net_income = profit_actual - tax
+
+        return jsonify({
+            "revenue": total_income,
+            "expense": total_expense,
+            "tax": round(tax, 2),
+            "tax_note": tax_note,
+            "net_income": round(net_income, 2),
+            "transaction_count": count,
+            "duration_days": delta_days,
+            "annualized_omzet": round(omzet_annualized, 2),
+            "is_less_than_year": is_less_than_year,
+            "total_income": total_income,
+            "total_expense": total_expense,
+            "avg_income_per_day": total_income / delta_days,
+            "avg_expense_per_day": total_expense / delta_days,
+            "avg_income_per_week": total_income / delta_weeks,
+            "avg_expense_per_week": total_expense / delta_weeks,
+            "avg_income_per_month": total_income / delta_months,
+            "avg_expense_per_month": total_expense / delta_months
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
